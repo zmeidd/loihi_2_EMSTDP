@@ -755,27 +755,6 @@ class loihi2_net(multipattern_learning):
         b = np.argmax(labels,axis=-1)
         print(sum(a==b)/len(data))
 
-data_train = np.load("x_train.npy")
-data_label = np.load("y_train.npy")
-conv_wgt_1 = np.load("conv_wgt_1.npy")
-conv_wgt_2 = np.load("conv_wgt_2.npy")
-print(conv_wgt_1.shape)
-conv_wgt = [conv_wgt_1,conv_wgt_2]
-data = data_train[:100]
-label =data_label[:100]
-
-
-net = loihi2_net([200,100,10],32, conv_wgt=conv_wgt)
-dataset = [data,label]
-data = np.ones((20,32,32,1))
-label = label[:20]
-dataset = [data,label]
-net.train_loihi_network(dataset)
-print("done!")
-new_set = [data_train[:100], data_label[:100]]
-net.test_non_conv_loihi(new_set)
-
-
 
     
     
