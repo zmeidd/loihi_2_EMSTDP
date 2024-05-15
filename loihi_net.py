@@ -816,63 +816,23 @@ def test_non_conv_loihi_fast_io(dataset, w_h, w_o, time_steps = 32):
 
 
 
+data_train = np.load("x_train.npy")
+data_label = np.load("y_train.npy")
 
+data = data_train[:200]
+label =data_label[:200]
 
+data = (data).astype(int)
 
-
-
-
-
-
-# data_train = np.load("x_train.npy")
-# data_label = np.load("y_train.npy")
-# conv_wgt_1 = np.load("conv_wgt_1.npy")
-# conv_wgt_2 = np.load("conv_wgt_2.npy")
-# print(conv_wgt_1.shape)
-# conv_wgt = [conv_wgt_1,conv_wgt_2]
-# data = data_train[:100]
-# label =data_label[:100]
-
-
-# net = loihi2_net([200,100,10],32, conv_wgt=conv_wgt)
-# dataset = [data,label]
-# data = np.ones((20,32,32,1))
-# label = label[:20]
-# dataset = [data,label]
-# net.train_loihi_network(dataset)
-# print("done!")
-# new_set = [data_train[:100], data_label[:100]]
-# net.test_non_conv_loihi(new_set)
-
-#inputs [2,3]
-
-num_samples = 2
-T = 10
-inputs = np.array([[0.2,0.5],[0.1,1]])
-spikes = 2*generate_spikes(num_samples= 2,inputs= inputs,vth=1,
-                                T= 10)
-
-
-print(spikes)
-# a = LIFReset(shape=(2,),vth = 1,bias_mant= 0,du=4095,dv=0,reset_interval=16)
-# inp_adapter = eio.spike.PyToNxAdapter(shape= (2,))
-# out_adapter = eio.spike.NxToPyAdapter(shape= (2,))
-
-
-# con1 = Dense(weights= np.eye(2))
-# generator = io.source.RingBuffer(data=spikes.astype(int))
-# logger = io.sink.RingBuffer(shape=(2,), buffer=len(inputs)*10)
-
-
-# generator.s_out.connect(inp_adapter.inp)
-# inp_adapter.out.connect(con1.s_in)
-
-# con1.a_out.connect(a.a_in)   
-# a.s_out.connect(out_adapter.inp)
-# out_adapter.out.connect(logger.a_in)
-
-# a.run(condition=RunSteps(num_steps=num_samples*self.time_steps),
-#         run_cfg=Loihi2HwCfg())
-# #result vector shape Feature x Total length
-# out_data = logger.data.get().astype(np.int16)
-# a.stop()
+net = loihi2_net([200,100,10],time_steps = 32, conv =False)
+dataset = [data,label]
+w_h, w_o=net.train_loihi_network(dataset)
+# np.save("w_h.npy",w_h)
+# np.save("w_o.npy",w_o)
+# w_h = np.load("w_h.npy")
+# w_o = np.load("w_o.npy")
+print("done!")
+new_set = [data_train[:30], data_label[:30]]
+net.test_non_conv_loihi_fast_io(new_set,w_h,w_o)
+print("done testing")
+net.test_non_conv_loihi(new_set,w_h,w_o)
