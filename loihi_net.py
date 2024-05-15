@@ -61,7 +61,8 @@ from lava.magma.core.learning.learning_rule import Loihi2FLearningRule
 import time
 import typing
 from lava.proc.conv.process import Conv
-
+from lava.proc import io
+from lava.proc import embedded_io as eio
 
 from lava.magma.core.decorator import implements, requires
 from lava.magma.core.run_conditions import RunSteps, RunContinuous
@@ -113,7 +114,10 @@ def to_integer(weights, bitwidth, normalize=True):
 
 
 class loihi2_net(multipattern_learning):
-    def __init__(self, dim,time_steps,w_h=[], w_o = [],threshold_h = 0.5,conv_input_shape = (32,32,1), threshold_o = 0.1, conv_wgt= [], conv=True, loihi =True):
+    def __init__(self, dim,time_steps,w_h=[], w_o = [],threshold_h = 0.5,
+                 conv_input_shape = (32,32,1), threshold_o = 0.1, 
+                 conv_wgt= [], conv=True, fast_io = True,
+                 loihi =True):
         super().__init__(dim = dim,conv = conv,time_steps = time_steps)
         
         #check initialization
@@ -135,6 +139,7 @@ class loihi2_net(multipattern_learning):
         self.loihi_fwd_connections = dict()
         self.conv = conv
         self.conv_input_shape = conv_input_shape
+        self.fast_io = fast_io
 
         self.pos_out = []
         self.pos_hidden = []
@@ -574,6 +579,72 @@ class loihi2_net(multipattern_learning):
             pattern_pre.stop()
             print('Testing Result:',np.sum(np.argmax(final_res,axis =-1)==np.argmax(labels,axis =-1))/num_samples)
         
+        
+    def test_non_conv_loihi_fast_io(self,dataset):
+        data = dataset[0]
+        label = dataset[1]
+        vth = 1
+        vth_hid = self.fwd_hidden_vth
+        vth_out = self.fwd_output_vth
+        num_samples = len(data)
+        features = self.dim[0]
+        b_features = self.dim[1]
+        c_features = self.dim[2]
+        T = self.time_steps
+        self.conv= False
+        inputs = data
+
+        
+        spikes = self.generate_inputs(inputs,vth = vth, T = self.time_steps)
+        inp_adapter = eio.spike.PyToNxAdapter(shape= features)
+        out_adapter = eio.spike.NxToPyAdapter(shape= c_features)
+
+        pattern_pre = RingBuffer(data=spikes.astype(int))
+        logger = io.sink.RingBuffer(shape=c_features, buffer=len(data)*self.time_steps)
+        '''
+        Switch Py interfaces to NC interfaces
+        '''
+        pattern_pre = LIFReset(shape=(features,),vth = 1,bias_mant= 0,du=4095,dv=0,reset_interval=64)
+        w_h = np.transpose(self.w_h)
+        w_o = np.transpose(self.w_o)
+
+        a = LIFReset(shape=(b_features,),vth = vth_hid,bias_mant= 0,du=4095,dv=0,reset_interval=self.time_steps)
+        b = LIFReset(shape=(c_features,),vth = vth_out,bias_mant= 0,du=4095,dv=0,reset_interval=self.time_steps)
+        
+        '''
+        connections
+        '''
+        con1 = Dense(weights= np.transpose(w_h))
+        con = Dense(weights= np.transpose(w_o) )
+        '''
+        embedded io 
+        '''
+        pattern_pre.s_out.connect(inp_adapter.inp)
+        inp_adapter.out.connect(con1.s_in)
+
+        con1.a_out.connect(a.a_in) 
+        a.s_out.connect(con.s_in)
+        con.a_out.connect(b.a_in)
+        b.s_out.connect(out_adapter.inp)
+        out_adapter.out.connect(logger.a_in)
+        
+
+        '''
+        Run the network
+        '''
+        a.run(condition=RunSteps(num_steps=num_samples*self.time_steps),
+                run_cfg=Loihi2HwCfg())
+        #result vector shape Feature x Total length
+        out_data = logger.data.get().astype(np.int16)
+        a.stop()
+        final_res = np.zeros((num_samples, c_features))
+        for i in range(num_samples):
+            final_res[i,:] = out_data[:,(i*T):(i+1)*T]
+        final_res = np.argmax(final_res, axis= -1)
+        acc = (np.sum(final_res == label)/num_samples).astype(float) 
+        print("Testing result is: ", acc)       
+
+       
     def connect_fwd_bwd(self):
         fwd_bwd_conn = Dense(
             weights = np.eye(self.dim[2]),
@@ -593,7 +664,7 @@ class loihi2_net(multipattern_learning):
         t_epoch =1 
             )
 
-    def generate_spikes(self,num_samples , inputs, vth, T):
+    def generate_spikes(self,num_samples,inputs,vth, T):
         res = generate_inputs(inputs,vth, T)
         tmp_res = res
         spikes = np.zeros([res.shape[2], res.shape[0]*res.shape[1]])
@@ -689,71 +760,27 @@ class loihi2_net(multipattern_learning):
         self.fwd_nodes[0].stop()
         
         return self.hidden_weights, self.out_weights
-    
-    # '''
-    # Training the network
-    # Epochs: number of epochs
-    # dataset format:[data,label]
-    # data shape:(numsamples, features)
-    # label shape:(num_samples, classes)
-    # '''
-    # def train(dataset):
-    
-    def test(self,dataset,w_h, w_o):
-        spk_prob = Monitor()
-        test_input = self.create_nodes(
-            shape = (self.dim[0],),
-            vth = 1,
-            dv = 0,
-            du =1,
-        )
-        test_hidden = self.create_nodes(
-            shape = (self.dim[1],),
-            vth =3.0618,
-            dv = 0,
-            du =1,
-        )
-        test_out = self.create_nodes(
-            shape = (self.dim[2],),
-            vth = 0.8660,
-            dv = 0,
-            du = 1,
-        )
-        dense_hid = Dense(
-            weights = w_h
-        )
-        dense_out = Dense(
-            weights = w_o
-        )
 
-        #connect
-        test_input.s_out.connect(dense_hid.s_in)
-        dense_hid.a_out.connect(test_hidden.a_in)
-        test_hidden.s_out.connect(dense_out.s_in)
-        dense_out.a_out.connect(test_out.a_in)
+data_train = np.load("x_train.npy")
+data_label = np.load("y_train.npy")
+conv_wgt_1 = np.load("conv_wgt_1.npy")
+conv_wgt_2 = np.load("conv_wgt_2.npy")
+print(conv_wgt_1.shape)
+conv_wgt = [conv_wgt_1,conv_wgt_2]
+data = data_train[:100]
+label =data_label[:100]
 
-        data = dataset[0]
-        labels = dataset[1]
-        #run first time step
-        spk_prob.probe(test_out.s_out,1+len(data)*self.time_steps)
-        test_input.run(condition=RunSteps(num_steps=1), run_cfg= Loihi2SimCfg(select_tag = "floating_pt"))
 
-        for i in range(len(data)):
-            test_input.vars.bias_mant.set(data[i])
-            test_input.run(condition=RunSteps(num_steps=self.time_steps), run_cfg= Loihi2SimCfg(select_tag = "floating_pt"))
-            # test_input.pause()
-            
-        spks = spk_prob.get_data()[test_out.name]['s_out']
-        test_input.stop()
-        print(spks.shape)
-        # #accuracy 
-        result = np.zeros((len(data),10))
-        for j in range(len(data)):
-            tmp = np.sum(spks[j*(self.time_steps):(j+1)*self.time_steps,:],axis =0)
-            result[j] = tmp
-        a = np.argmax(result,axis =-1)
-        b = np.argmax(labels,axis=-1)
-        print(sum(a==b)/len(data))
+net = loihi2_net([200,100,10],32, conv_wgt=conv_wgt)
+dataset = [data,label]
+data = np.ones((20,32,32,1))
+label = label[:20]
+dataset = [data,label]
+net.train_loihi_network(dataset)
+print("done!")
+new_set = [data_train[:100], data_label[:100]]
+net.test_non_conv_loihi(new_set)
+
 
 
     

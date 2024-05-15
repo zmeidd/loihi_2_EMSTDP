@@ -98,7 +98,8 @@ class VecRecvProcess(AbstractProcess):
 #         spk_in = self.s_in.recv()
 #         self.spk_data[self.time_step - 1, :] = spk_in
 
-
+MAX_NUM =2000
+ITERS =10
 
 
 def preprocess_label(label,dim):
@@ -287,12 +288,14 @@ class multipattern_learning:
         self.conv = conv
         
  #online/offline accepting data
-    def streaming(self, dataset,w_h=[],w_o=[], online=False):
+    def streaming(self, dataset,online=False):
         dim = self.dim
         self.threshold_h, self.threshold_o, self.ethreshold_h, self.ethreshold_o =Init_Threshold(inputs= self.dim[0],outputs=self.dim[-1],h =[self.dim[1]],threshold_h=0.5,threshold_o=0.1)
         data = dataset[0]
         labels = dataset[1]
-        bs = int(len(data)/10)
+        data = data[:MAX_NUM]
+        labels = labels[:MAX_NUM]
+        bs = int(len(data)/ITERS)
         if self.conv:
             model = ann_model()
             new_data = np.zeros((len(data),self.dim[0]))
@@ -303,11 +306,11 @@ class multipattern_learning:
         data_index = (np.linspace(0, len(data) - 1, len(data))).astype(int)
         data = np.expand_dims(np.reshape(data, [len(data),self.dim[0]]), axis=0)
        
-        if len(w_h) ==0:
+        if len(self.w_a) ==0:
             self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
         else:
-            w_h = w_h
-            w_o = w_o
+            self.w_a[0] = (np.transpose(self.w_h/np.max(self.w_h))).astype(float)
+            self.w_b = (np.transpose(self.w_h/np.max(self.w_b))).astype(float)
         labels = np.argmax(labels,axis=-1)
         
         for i in range(10):   
