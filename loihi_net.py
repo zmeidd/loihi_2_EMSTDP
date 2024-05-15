@@ -846,23 +846,23 @@ def test_non_conv_loihi_fast_io(dataset, w_h, w_o, time_steps = 32):
 
 
 
-data_train = np.load("x_train.npy")
-data_label = np.load("y_train.npy")
+# data_train = np.load("x_train.npy")
+# data_label = np.load("y_train.npy")
 
-data = data_train[:200]
-label =data_label[:200]
+# data = data_train[:200]
+# label =data_label[:200]
 
-data = (data).astype(int)
+# data = (data).astype(int)
 
-net = loihi2_net([200,100,10],time_steps = 32, conv =False)
-dataset = [data,label]
-w_h, w_o=net.train_loihi_network(dataset)
-# np.save("w_h.npy",w_h)
-# np.save("w_o.npy",w_o)
-# w_h = np.load("w_h.npy")
-# w_o = np.load("w_o.npy")
-print("done!")
-new_set = [data_train[:30], data_label[:30]]
-net.test_non_conv_loihi_fast_io(new_set,w_h,w_o)
-print("done testing")
-net.test_non_conv_loihi(new_set,w_h,w_o)
+# net = loihi2_net([200,100,10],time_steps = 32, conv =False)
+# dataset = [data,label]
+# w_h, w_o=net.train_loihi_network(dataset)
+# # np.save("w_h.npy",w_h)
+# # np.save("w_o.npy",w_o)
+# # w_h = np.load("w_h.npy")
+# # w_o = np.load("w_o.npy")
+# print("done!")
+# new_set = [data_train[:30], data_label[:30]]
+# net.test_non_conv_loihi_fast_io(new_set,w_h,w_o)
+# print("done testing")
+# net.test_non_conv_loihi(new_set,w_h,w_o)
