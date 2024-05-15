@@ -114,6 +114,7 @@ class loihi2_net(multipattern_learning):
         
         
         self.dim = dim
+        self.fast_io = fast_io
         self.fwd_nodes = dict()
         self.bwd_nodes = dict()
         self.fwd_con = dict()
@@ -174,6 +175,7 @@ class loihi2_net(multipattern_learning):
                 self.create_conv_loihi_network(conv_wgt[0],conv_wgt[1])
             else:
                 self.create_loihi_dense_network()
+                              
                 self.create_loihi_error_path()
             
         else:  
@@ -274,6 +276,7 @@ class loihi2_net(multipattern_learning):
         self.neg_hid_con.a_out.connect(self.loihi_neg_hid.a_in)
         self.loihi_neg_hid.s_out.connect(self.neg_hid_hid.s_in)
         self.neg_hid_hid.a_out.connect(self.lif_dense_hid.a_in)
+        
     def create_loihi_dense_network(self):
         lr = Loihi2FLearningRule(
         dw= '2^-7*u7*y1*x1-2^-7*u7*y0*x1',  
@@ -282,7 +285,12 @@ class loihi2_net(multipattern_learning):
         y1_impulse=1,
         y1_tau= 240,
         t_epoch=1)
-        self.lif_input = LIF(shape =(self.dim[0],), vth=1, du=4095,dv=0)
+        if self.fast_io:
+            self.lif_input = LIF(shape =(self.dim[0],), vth=1, du=4095,dv=4095)
+        else:
+            #fast leakage since the inputs are always 0 or 1
+            self.lif_input = LIF(shape =(self.dim[0],), vth=1, du=4095,dv=4095)
+            
         self.lif_dense_hid = LIF(
             shape = (self.dim[1],), vth= self.fwd_hidden_vth, du=4095,dv=0
         )
@@ -380,28 +388,50 @@ class loihi2_net(multipattern_learning):
     '''
     Train loihi network for 1 epoch
     '''
-    def train_loihi_network(self, dataset, w_h=[], w_o=[], tag =False):
+    def train_loihi_network(self, dataset, w_h=[], w_o=[], fast_io = True):
         data = dataset[0]
-        labels = dataset[1]
+        label = dataset[1]
         aux = dataset
-        if tag:
+        if not self.loihi:
             run_cfg = Loihi2SimCfg(select_tag= "fixed_pt")
         else:
             run_cfg = Loihi2HwCfg()
-        self.lif_input.run(condition=RunSteps(num_steps=1), run_cfg=run_cfg)
-        for i in range(len(data)):
-            inputs = data[i]
-            label = labels[i]
-            self.lif_input.bias_mant.set(inputs.astype(int))
-            #run 1 time step
-            self.lif_input.run(condition=RunSteps(num_steps=self.time_steps), run_cfg=run_cfg)
-        
-            # self.label.bias_mant.set(label.astype(int))
-            self.reset_training_states()
-        self.lif_input.stop()
-        self.streaming(aux)
-        
+        if not fast_io:
+            self.lif_input.run(condition=RunSteps(num_steps=1), run_cfg=run_cfg)
+            for i in range(len(data)):
+                inputs = data[i]
+                label = label[i]
+                self.lif_input.bias_mant.set(inputs.astype(int))
+                #run 1 time step
+                self.lif_input.run(condition=RunSteps(num_steps=self.time_steps), run_cfg=run_cfg)
             
+                # self.label.bias_mant.set(label.astype(int))
+                self.reset_training_states()
+         
+        else:
+            generator_dense = Dense(
+                weights = 2*np.eye(self.dim[0])
+            )
+            num_steps = self.time_steps
+            num_samples = len(data)
+            inp_data = self.generate_spikes(num_samples= num_samples,inputs= data,vth=1,
+                                T= self.time_steps)
+            inp_shape = generator_dense.s_in.shape
+            generator = io.source.RingBuffer(data=inp_data)
+            inp_adapter = eio.spike.PyToNxAdapter(shape=inp_shape)
+            generator.s_out.connect(inp_adapter.inp)
+            inp_adapter.out.connect(generator_dense.s_in)
+            generator_dense.a_out.connect(self.lif_input.a_in)
+            
+            self.lif_input.run(condition=RunSteps(num_steps=num_steps*num_samples),
+                  run_cfg=Loihi2HwCfg())
+            
+        self.streaming(aux)
+        self.lif_input.stop()   
+       
+        
+        
+                      
             
     def reset_training_states(self):
         if not self.conv:
