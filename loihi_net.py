@@ -775,72 +775,54 @@ class loihi2_net(multipattern_learning):
 
 
 
-
-
-
-
-def test_non_conv_loihi_fast_io(dataset, w_h, w_o, time_steps = 32):
+def test_non_conv_loihi_fast_io(dataset,w_h=[],w_o=[],time_steps =32):
     data = dataset[0]
     label = dataset[1]
-    vth = 1
-    vth_hid = int(3.08*255)
-    vth_out = int(0.8*255)
+
+    weight = w_h
+    weight1 = w_o
+    num_steps = time_steps
     num_samples = len(data)
-    features = 200
-    b_features = 100
-    c_features = 10
-    T =time_steps
-    inputs = data
 
     
-    spikes = generate_spikes(num_samples= num_samples,inputs= inputs,vth=vth,
-                                    T= T)
-    inp_adapter = eio.spike.PyToNxAdapter(shape= (features,))
-    out_adapter = eio.spike.NxToPyAdapter(shape= (c_features,))
+    dense = Dense(weights=weight)
+    dense2 = Dense(weights=weight1)
+    sigma = LIFReset(shape=dense.a_out.shape,dv=0, du= 4095, bias_mant=0, vth = 755,reset_interval =time_steps)
+    lif = LIFReset(shape = (weight1.shape[0],), dv =0, du = 4095, bias_mant =0,vth =220,reset_interval = time_steps)
+    inp_shape = dense.s_in.shape
+    out_shape = lif.s_out.shape
+    inp_data = generate_spikes(num_samples= num_samples,inputs= data,vth=1,
+                                  T= time_steps)
+    print("non zero data",np.count_nonzero(inp_data))
 
-    generator = io.source.RingBuffer(data=spikes.astype(int))
-    logger = io.sink.RingBuffer(shape=(c_features,), buffer=len(data)*time_steps)
-    '''
-    Switch Py interfaces to NC interfaces
-    '''
-    w_h = np.transpose(w_h)
-    w_o = np.transpose(w_o)
-
-    a = LIFReset(shape=(b_features,),vth = vth_hid,bias_mant= 0,du=4095,dv=0,reset_interval=T)
-    b = LIFReset(shape=(c_features,),vth = vth_out,bias_mant= 0,du=4095,dv=0,reset_interval=T)
+    generator = io.source.RingBuffer(data=inp_data)
+    inp_adapter = eio.spike.PyToNxAdapter(shape=inp_shape)
+    out_adapter = eio.spike.NxToPyAdapter(shape=out_shape)
+    logger = io.sink.RingBuffer(shape=out_shape, buffer=num_steps*num_samples)
     
-    '''
-    connections
-    '''
-    con1 = Dense(weights= np.transpose(w_h))
-    con = Dense(weights= np.transpose(w_o) )
-    '''
-    embedded io 
-    '''
     generator.s_out.connect(inp_adapter.inp)
-    inp_adapter.out.connect(con1.s_in)
-
-    con1.a_out.connect(a.a_in) 
-    a.s_out.connect(con.s_in)
-    con.a_out.connect(b.a_in)
-    b.s_out.connect(out_adapter.inp)
+    inp_adapter.out.connect(dense.s_in)
+    
+    dense.a_out.connect(sigma.a_in)
+    sigma.s_out.connect(dense2.s_in)
+    dense2.a_out.connect(lif.a_in)
+    lif.s_out.connect(out_adapter.inp)
     out_adapter.out.connect(logger.a_in)
     
-
-    '''
-    Run the network
-    '''
-    a.run(condition=RunSteps(num_steps=num_samples*T),
-            run_cfg=Loihi2HwCfg())
-    #result vector shape Feature x Total length
+    sigma.run(condition=RunSteps(num_steps=num_steps*num_samples),
+              run_cfg=Loihi2HwCfg())
     out_data = logger.data.get().astype(np.int16)
-    a.stop()
-    final_res = np.zeros((num_samples, c_features))
+    sigma.stop()
+    print("done Testing")
+    final_res = np.zeros((num_samples, 10))
+    out_data_1 = np.zeros_like(out_data)
+    out_data_1[:,0:-1] = out_data[:,1:] 
     for i in range(num_samples):
-        final_res[i,:] = out_data[:,(i*T):(i+1)*T]
+        final_res[i,:] = np.sum(out_data[:,(i*time_steps):(i+1)*time_steps],axis = -1)
     final_res = np.argmax(final_res, axis= -1)
-    acc = (np.sum(final_res == label)/num_samples).astype(float) 
-    print("Testing result is: ", acc)     
+    print(final_res)
+    acc = (np.sum(final_res == np.argmax(label,axis=-1))/num_samples).astype(float) 
+    print("Testing result is: ", acc)    
 
 
 
