@@ -119,6 +119,19 @@ def generate_inputs(inputs,vth,T):
                     res[t,j,i] = 1
     return res
 
+def generate_spikes(num_samples,inputs,vth, T):
+    res = generate_inputs(inputs,vth, T)
+    tmp_res = res
+    spikes = np.zeros([res.shape[2], res.shape[0]*res.shape[1]])
+    print(spikes.shape)
+    # for kk in range(len(spikes)):
+    #     spikes[kk] = res [:,0,kk]
+    for kk in range(len(spikes)):
+        for i in range(num_samples):
+                spikes[kk,i*T:(i+1)*T] = res[:,i,kk]
+    
+    return spikes
+
 
 def init_weights( inputs, outputs, h, init=0):
     w_h = []
