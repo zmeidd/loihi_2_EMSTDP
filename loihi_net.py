@@ -587,7 +587,7 @@ class loihi2_net(multipattern_learning):
         
         spikes = self.generate_spikes(num_samples= num_samples,inputs= inputs,vth=vth,
                                       T= T)
-        inp_adapter = eio.spike.PyToNxAdapter(shape= (b_features,))
+        inp_adapter = eio.spike.PyToNxAdapter(shape= (features,))
         out_adapter = eio.spike.NxToPyAdapter(shape= (c_features,))
 
         generator = io.source.RingBuffer(data=spikes.astype(int))
