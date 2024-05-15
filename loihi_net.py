@@ -17,7 +17,6 @@ np.seterr(divide='ignore')
 from lava.magma.core.run_conditions import RunSteps
 from lava.proc.dense.process import Dense
 from lava.magma.core.learning.learning_rule import Loihi2FLearningRule
-from model import get_pre_trained_model
 
 from lava.magma.core.run_configs import Loihi2HwCfg ,Loihi2SimCfg
 from lava.magma.core.run_conditions import RunSteps
