@@ -7,6 +7,8 @@ from utils import init_weights
 import numpy as np
 import opt_einsum as oe
 from lava.utils.system import Loihi2
+from lava.proc import io
+from lava.proc import embedded_io as eio
 import os
 import logging
 import numpy as np
@@ -21,21 +23,10 @@ from lava.magma.core.run_configs import Loihi2HwCfg ,Loihi2SimCfg
 from lava.magma.core.run_conditions import RunSteps
 from lava.proc.monitor.process import Monitor
 from lava.magma.core.learning.learning_rule import Loihi2FLearningRule
-import time
-from lava.magma.core.process.process import AbstractProcess
-from lava.magma.core.decorator import implements, requires
-from lava.magma.core.resources import CPU, NeuroCore
 from lava.proc.monitor.process import Monitor
 from utils import multipattern_learning
 from lava.proc.io.source import RingBuffer as SpikeIn
 from utils import generate_inputs
-from lava.magma.core.decorator import implements, requires
-from lava.magma.core.model.py.model import PyLoihiProcessModel
-from lava.magma.core.model.py.type import LavaPyType
-from lava.magma.core.process.ports.ports import InPort, OutPort
-from lava.magma.core.process.process import AbstractProcess
-from lava.magma.core.process.variable import Var
-from lava.magma.core.resources import CPU, NeuroCore
 from lava.magma.core.run_conditions import RunSteps, RunContinuous
 from lava.magma.core.sync.domain import SyncDomain
 from lava.magma.core.sync.protocols.loihi_protocol import LoihiProtocol
@@ -48,7 +39,6 @@ os.environ['PYTHONBUFFERED'] = '1'
 Loihi2.preferred_partition = 'oheogulch'
 loihi2_is_available = Loihi2.is_loihi2_available
 
-from lava.proc.lif.process import LIF, LearningLIF
 from lava.proc.dense.process import LearningDense, Dense, DelayDense
 from lava.proc.lif.process import LIFReset
 
@@ -595,16 +585,15 @@ class loihi2_net(multipattern_learning):
         inputs = data
 
         
-        spikes = self.generate_inputs(inputs,vth = vth, T = self.time_steps)
-        inp_adapter = eio.spike.PyToNxAdapter(shape= features)
-        out_adapter = eio.spike.NxToPyAdapter(shape= c_features)
+        spikes = self.generate_inputs(inputs,vth = vth)
+        inp_adapter = eio.spike.PyToNxAdapter(shape= (features,))
+        out_adapter = eio.spike.NxToPyAdapter(shape= (c_features,))
 
-        pattern_pre = RingBuffer(data=spikes.astype(int))
-        logger = io.sink.RingBuffer(shape=c_features, buffer=len(data)*self.time_steps)
+        generator = io.source.RingBuffer(data=spikes.astype(int))
+        logger = io.sink.RingBuffer(shape=(c_features,), buffer=len(data)*self.time_steps)
         '''
         Switch Py interfaces to NC interfaces
         '''
-        pattern_pre = LIFReset(shape=(features,),vth = 1,bias_mant= 0,du=4095,dv=0,reset_interval=64)
         w_h = np.transpose(self.w_h)
         w_o = np.transpose(self.w_o)
 
@@ -619,7 +608,7 @@ class loihi2_net(multipattern_learning):
         '''
         embedded io 
         '''
-        pattern_pre.s_out.connect(inp_adapter.inp)
+        generator.s_out.connect(inp_adapter.inp)
         inp_adapter.out.connect(con1.s_in)
 
         con1.a_out.connect(a.a_in) 
