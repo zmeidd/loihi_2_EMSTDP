@@ -301,7 +301,6 @@ class multipattern_learning:
         self.conv = conv
         self.w_a= [None]
         self.w_b = []
-        self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
         
  #online/offline accepting data
     def streaming(self, dataset,online=False):
@@ -321,7 +320,14 @@ class multipattern_learning:
          
         data_index = (np.linspace(0, len(data) - 1, len(data))).astype(int)
         data = np.expand_dims(np.reshape(data, [len(data),self.dim[0]]), axis=0)
-
+       
+        # if len(self.w_a) ==0:
+        #     self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
+        # else:
+        #     self.w_a[0] = np.tranpose(self.w_h) 
+        #     self.w_b =  np.transpose(self.w_o)
+        self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
+        labels = np.argmax(labels,axis=-1)
         
         for i in range(ITERS):   
             spikes = np.zeros([self.time_steps,bs, dim[0]]).astype(float)     
