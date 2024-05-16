@@ -18,24 +18,18 @@ from lava.magma.core.run_conditions import RunSteps
 from lava.proc.dense.process import Dense
 from lava.magma.core.learning.learning_rule import Loihi2FLearningRule
 
-from lava.magma.core.run_configs import Loihi2HwCfg ,Loihi2SimCfg
-from lava.magma.core.run_conditions import RunSteps
 from lava.proc.monitor.process import Monitor
 from lava.magma.core.learning.learning_rule import Loihi2FLearningRule
-from lava.proc.monitor.process import Monitor
 from utils import multipattern_learning
-from lava.proc.io.source import RingBuffer as SpikeIn
 from utils import generate_inputs
-from lava.magma.core.run_conditions import RunSteps, RunContinuous
 from lava.magma.core.sync.domain import SyncDomain
 from lava.magma.core.sync.protocols.loihi_protocol import LoihiProtocol
 from lava.proc.lif.process import LIF, LIFReset
-from lava.proc.io.source import RingBuffer
 from utils import Init_Threshold
 from utils import init_weights
 os.environ["SLURM"] = '1'
-os.environ['PYTHONBUFFERED'] = '1'
-Loihi2.preferred_partition = 'oheogulch'
+# os.environ['PYTHONBUFFERED'] = '1'
+# Loihi2.preferred_partition = 'oheogulch'
 loihi2_is_available = Loihi2.is_loihi2_available
 
 from lava.proc.dense.process import LearningDense, Dense, DelayDense
@@ -50,13 +44,8 @@ from lava.magma.core.learning.learning_rule import Loihi2FLearningRule
 import time
 import typing
 from lava.proc.conv.process import Conv
-from lava.proc import io
-from lava.proc import embedded_io as eio
-from lava.magma.core.run_conditions import RunSteps, RunContinuous
-from lava.magma.core.run_configs import RunConfig, Loihi2SimCfg
-from lava.magma.core.sync.domain import SyncDomain
 from lava.magma.core.sync.protocols.loihi_protocol import LoihiProtocol
-from lava.proc.lif.process import LIF, LIFReset
+
 
 from utils import Init_Threshold
 from utils import init_weights
@@ -285,14 +274,14 @@ class loihi2_net(multipattern_learning):
         y1_tau= 240,
         t_epoch=1)
         if self.fast_io:
+             #fast leakage since the inputs are always 0 or 1
             self.lif_input = LIF(shape =(self.dim[0],), vth=1, du=4095,dv=4095)
         else:
-            #fast leakage since the inputs are always 0 or 1
-            self.lif_input = LIF(shape =(self.dim[0],), vth=1, du=4095,dv=4095)
+            print("Bias input")
+            self.lif_input = LIF(shape =(self.dim[0],), vth=1, du=4095,dv= 0)
             
         self.lif_dense_hid = LIF(
-            shape = (self.dim[1],), vth= self.fwd_hidden_vth, du=4095,dv=0
-        )
+            shape = (self.dim[1],), vth= self.fwd_hidden_vth, du=4095,dv=0)
         self.dense_hid = LearningDense(
             weights = self.w_h,
             learning_rule= lr
@@ -303,7 +292,7 @@ class loihi2_net(multipattern_learning):
             learning_rule= lr
         )
         self.lif_dense_out = LIF(
-            shape =(self.dim[2],), vth= self.fwd_output_vth, du=4095,dv=0
+            shape =(self.dim[2],), vth= self.fwd_output_vth, du=4095,dv=0 
         )
         self.lif_input.s_out.connect(self.dense_hid.s_in)
         self.dense_hid.a_out.connect(self.lif_dense_hid.a_in)
@@ -387,25 +376,26 @@ class loihi2_net(multipattern_learning):
     '''
     Train loihi network for 1 epoch
     '''
-    def train_loihi_network(self, dataset, w_h=[], w_o=[], fast_io = True):
+    def train_loihi_network(self, dataset, w_h=[], w_o=[], fast_io = False):
         data = dataset[0]
-        label = dataset[1]
+        labels = dataset[1]
+        start = time.time()
         aux = dataset
         if not self.loihi:
             run_cfg = Loihi2SimCfg(select_tag= "fixed_pt")
         else:
             run_cfg = Loihi2HwCfg()
-        if not fast_io:
+
+        if not self.fast_io:
+            print("not fast io!")
             self.lif_input.run(condition=RunSteps(num_steps=1), run_cfg=run_cfg)
             for i in range(len(data)):
                 inputs = data[i]
-                label = label[i]
-                self.lif_input.bias_mant.set(inputs.astype(int))
-                #run 1 time step
-                self.lif_input.run(condition=RunSteps(num_steps=self.time_steps), run_cfg=run_cfg)
-            
-                # self.label.bias_mant.set(label.astype(int))
-                self.reset_training_states()
+                label = labels[i]
+                self.lif_input.bias_mant.set((65*inputs).astype(int))
+                #run intervals
+                self.lif_input.run(condition=RunSteps(num_steps=self.time_steps), run_cfg=  Loihi2HwCfg())
+                self.lif_input.v.set(np.zeros([self.dim[0]]))
          
         else:
             generator_dense = Dense(
@@ -424,10 +414,12 @@ class loihi2_net(multipattern_learning):
             
             self.lif_input.run(condition=RunSteps(num_steps=num_steps*num_samples),
                   run_cfg=Loihi2HwCfg())
-            
-        self.streaming(aux)
-        self.lif_input.stop()   
-       
+        self.lif_input.stop()
+        print("Done training.")
+        # self.streaming(aux)  
+        end = time.time()
+        print("elapsed time: ", end - start)
+        return self.w_h, self.w_o
         
         
                       
@@ -492,7 +484,7 @@ class loihi2_net(multipattern_learning):
         self.fwd_con[1].vars.x1.set(np.zeros((self.dim[1],)))
         
     
-    def test_non_conv_loihi(self,dataset):
+    def test_non_conv_loihi(self,dataset, w_h,w_o):
         data = dataset[0]
         label = dataset[1]
         vth = 1
@@ -512,9 +504,12 @@ class loihi2_net(multipattern_learning):
         # pattern_pre = LIFReset(shape=(features,),vth = 1,bias_mant= 0,du=4095,dv=0,reset_interval=64)
         pattern_pre = LIF(shape=(features,),vth = 1,bias_mant= 0,du=4095,dv=0)
         #w_h = w_h[0]
-        
-        w_h = np.transpose(self.w_h)
-        w_o = np.transpose(self.w_o)
+        if len(w_h) ==0:
+            w_h = np.transpose(self.w_h)
+            w_o = np.transpose(self.w_o)
+        else:
+            w_h = np.transpose(w_h)
+            w_o = np.transpose(w_o)
         # vth_hid = int(300*vth_hid)
         # vth_out = int(300*vth_out)
 
@@ -563,6 +558,7 @@ class loihi2_net(multipattern_learning):
             print(np.sum(np.argmax(res_spk,axis =-1)==np.argmax(labels,axis =-1))/num_samples)
             print("=========")
         else:
+            start = time.time()
             a = LIF(shape=(b_features,),vth = vth_hid,bias_mant= 0,du=4095,dv=0)
             b = LIF(shape=(c_features,),vth = vth_out,bias_mant= 0,du=4095,dv=0)
             c = LIF(shape=(c_features,),vth = 1000,bias_mant= 0,du=4095,dv=0)
@@ -579,7 +575,7 @@ class loihi2_net(multipattern_learning):
             con2.a_out.connect(c.a_in)
 
             final_res = np.zeros((num_samples, c_features))
-            pattern_pre.run(condition=RunSteps(num_steps= 33), run_cfg= Loihi2HwCfg())
+            pattern_pre.run(condition=RunSteps(num_steps=1), run_cfg= Loihi2HwCfg())
             for i in range(num_samples):
                 pattern_pre.bias_mant.set((65*inputs[i]).astype(int))
                 # pattern_pre.bias_mant.set(inputs[i])
@@ -592,13 +588,15 @@ class loihi2_net(multipattern_learning):
                 final_res[i] = result
                 c.vars.v.set(np.zeros([c_features]))
                 pattern_pre.pause()
+
             pattern_pre.stop()
             print('Testing Result:',np.sum(np.argmax(final_res,axis =-1)==np.argmax(labels,axis =-1))/num_samples)
-        
+            end = time.time()
+            print("elapsed time", end -start)
         
     def test_non_conv_loihi_fast_io(self,dataset,w_h=[],w_o=[]):
          
-         
+        start = time.time()
         data = dataset[0]
         label = dataset[1]
         if len(w_h) ==0:
@@ -653,7 +651,9 @@ class loihi2_net(multipattern_learning):
         final_res = np.argmax(final_res, axis= -1)
         print(final_res)
         acc = (np.sum(final_res == np.argmax(label,axis=-1))/num_samples).astype(float) 
-        print("Testing result is: ", acc)      
+        print("Testing result is: ", acc)
+        end = time.time()
+        print("elapsed time", end -start)
 
        
     def connect_fwd_bwd(self):
@@ -825,25 +825,3 @@ def test_non_conv_loihi_fast_io(dataset,w_h=[],w_o=[],time_steps =32):
 
 
 
-
-
-# data_train = np.load("x_train.npy")
-# data_label = np.load("y_train.npy")
-
-# data = data_train[:200]
-# label =data_label[:200]
-
-# data = (data).astype(int)
-
-# net = loihi2_net([200,100,10],time_steps = 32, conv =False)
-# dataset = [data,label]
-# w_h, w_o=net.train_loihi_network(dataset)
-# # np.save("w_h.npy",w_h)
-# # np.save("w_o.npy",w_o)
-# # w_h = np.load("w_h.npy")
-# # w_o = np.load("w_o.npy")
-# print("done!")
-# new_set = [data_train[:30], data_label[:30]]
-# net.test_non_conv_loihi_fast_io(new_set,w_h,w_o)
-# print("done testing")
-# net.test_non_conv_loihi(new_set,w_h,w_o)
