@@ -416,7 +416,7 @@ class loihi2_net(multipattern_learning):
                   run_cfg=Loihi2HwCfg())
         self.lif_input.stop()
         print("Done training.")
-        # self.streaming(aux)  
+        self.streaming(aux)  
         end = time.time()
         print("elapsed time: ", end - start)
         return self.w_h, self.w_o
