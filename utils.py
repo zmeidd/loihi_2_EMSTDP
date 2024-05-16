@@ -98,7 +98,7 @@ class VecRecvProcess(AbstractProcess):
 #         spk_in = self.s_in.recv()
 #         self.spk_data[self.time_step - 1, :] = spk_in
 
-MAX_NUM =2000
+MAX_NUM =1000
 ITERS =10
 
 
@@ -290,6 +290,17 @@ def to_integer(weights, bitwidth, normalize=True):
     weights = np.clip(weights / max_val * a_max, a_min, a_max).astype(int)
     return weights
 
+
+
+def hook(num_samples):
+    indices = np.arange(0, num_samples)
+    if num_samples > MAX_NUM:
+        np.random.shuffle(indices)
+        return indices[MAX_NUM]
+    else:
+        return indices
+
+
 class multipattern_learning:
     def __init__(self,dim,conv, time_steps ):
         self.w_h= []
@@ -308,8 +319,9 @@ class multipattern_learning:
         self.threshold_h, self.threshold_o, self.ethreshold_h, self.ethreshold_o =Init_Threshold(inputs= self.dim[0],outputs=self.dim[-1],h =[self.dim[1]],threshold_h=0.5,threshold_o=0.1)
         data = dataset[0]
         labels = dataset[1]
-        data = data[:MAX_NUM]
-        labels = labels[:MAX_NUM]
+        indices = hook(len(data))
+        data = data[indices]
+        label = labels[indices]
         bs = int(len(data)/ITERS)
         if self.conv:
             model = ann_model()
@@ -366,13 +378,6 @@ class multipattern_learning:
             for i in range(n_hidden):
                 sdelta_h[i] = np.zeros([self.time_steps, bs, self.hiddens[i]])
 
-            """
-            
-            """
-
-
-
-            ## main training loop (main algorithm)
             for t in range(1, self.time_steps):
                 # first phase
                 U_h[0][t, :, :] = oe.contract("Bi,ij->Bj", input_spikes[t - 1, :, :], self.w_a[0])  + U_h[0][t - 1, :, :]
