@@ -302,7 +302,6 @@ class multipattern_learning:
         self.w_a= [None]
         self.w_b = []
         self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
-        labels = np.argmax(labels,axis=-1)
         
  #online/offline accepting data
     def streaming(self, dataset,online=False):
