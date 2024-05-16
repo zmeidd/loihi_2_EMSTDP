@@ -112,7 +112,7 @@ def generate_inputs(inputs,vth,T):
     res = np.zeros((T,len(inputs),inputs.shape[1]))
     for j in range(len(inputs)):
         input_ = inputs[j]
-        intervals = (vth/input_).astype(int)+1
+        intervals = (vth/input_).astype(int)
         for t in range(T):
             for i in range(len(input_)):
                 if (t+1)%intervals[i] ==0:
@@ -299,6 +299,10 @@ class multipattern_learning:
         self.dim = dim
         self.time_steps = time_steps
         self.conv = conv
+        self.w_a= [None]
+        self.w_b = []
+        self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
+        labels = np.argmax(labels,axis=-1)
         
  #online/offline accepting data
     def streaming(self, dataset,online=False):
@@ -318,15 +322,9 @@ class multipattern_learning:
          
         data_index = (np.linspace(0, len(data) - 1, len(data))).astype(int)
         data = np.expand_dims(np.reshape(data, [len(data),self.dim[0]]), axis=0)
-       
-        if len(self.w_a) ==0:
-            self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
-        else:
-            self.w_a[0] = (np.transpose(self.w_h/np.max(self.w_h))).astype(float)
-            self.w_b = (np.transpose(self.w_h/np.max(self.w_b))).astype(float)
-        labels = np.argmax(labels,axis=-1)
+
         
-        for i in range(10):   
+        for i in range(ITERS):   
             spikes = np.zeros([self.time_steps,bs, dim[0]]).astype(float)     
             tmp_rand = np.random.random([self.time_steps, 1, 1])
             randy = np.tile(tmp_rand, (1, bs, dim[0]))
