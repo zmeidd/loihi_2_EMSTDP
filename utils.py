@@ -1,3 +1,4 @@
+
 import numpy as np
 import opt_einsum as oe
 # process definition
@@ -40,34 +41,119 @@ from keras.models import Model
 from keras.layers import Dropout, Flatten, Conv2D, Input, MaxPooling2D, Dense, AveragePooling2D
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+
+
+
+
+
+def to_integer(weights, bitwidth, normalize=True):
+    """Convert weights and biases to integers.
+
+    :param np.ndarray weights: 2D or 4D weight tensor.
+    :param np.ndarray biases: 1D bias vector.
+    :param int bitwidth: Number of bits for integer conversion.
+    :param bool normalize: Whether to normalize weights and biases by the
+        common maximum before quantizing.
+
+    :return: The quantized weights and biases.
+    :rtype: tuple[np.ndarray, np.ndarray]
+    """
+
+    max_val = np.max(np.abs(weights)) \
+        if normalize else 1
+    a_min = -2**bitwidth
+    a_max = - a_min - 1
+    weights = np.clip(weights / max_val * a_max, a_min, a_max).astype(int)
+    return weights, a_max/max_val
+
+
 '''
 recieve post spikes 
 if the IO works well on board
 '''
 def simple_softmax_conv_model(num_labels,  input_shape=(32,32,1), l2_reg=0.0):
     return keras.models.Sequential([
-    keras.layers.Conv2D(16, (5,5), (2, 2), activation=tf.nn.relu,
+    keras.layers.Conv2D(16, (5,5), (2, 2),
                            padding='valid', use_bias=False, input_shape=input_shape),
-    keras.layers.Conv2D(8, (5,5), (2, 2), activation=tf.nn.relu,
+    keras.layers.ReLU(max_value = 1),
+    keras.layers.Conv2D(8, (5,5), (2, 2), 
                            padding='valid',use_bias=False),
+    keras.layers.ReLU(max_value = 1),
  
     keras.layers.Flatten(),
+    keras.layers.ReLU(max_value = 1,  name='after_flatten'),
     keras.layers.Dense(200),
-    keras.layers.ReLU(max_value = 1,  name='after_flatten'), 
+    keras.layers.ReLU(max_value = 1),
     keras.layers.Dense(100),
     keras.layers.ReLU(max_value = 1), 
     keras.layers.Dense(num_labels, activation=tf.nn.softmax, name='out')])
 
-def ann_model():
+def loihi_model():
     
     ann_model = simple_softmax_conv_model(10)
     
-    ann_model.load_weights("ann_wgt.h5")
+    ann_model.load_weights("cnn.h5")
     
     intermediate_layer_model = Model(inputs=ann_model.input,
                                  outputs=ann_model.get_layer('after_flatten').output)
 
     return intermediate_layer_model
+
+
+
+def  conv_model(num_labels, hidden_nodes=32, input_shape=(32,32,1), l2_reg=0.0):
+    return keras.models.Sequential([
+    keras.layers.Conv2D(hidden_nodes, (5,5), (2, 2), activation=tf.nn.relu,
+                           padding='same', use_bias=False, input_shape=input_shape),
+    keras.layers.Conv2D(hidden_nodes, (5,5), (2, 2), activation=tf.nn.relu,
+                           padding='same',use_bias=False),
+    keras.layers.Conv2D(hidden_nodes, (5,5), (2, 2),activation=tf.nn.relu,
+                           padding='same',use_bias=False),
+ 
+    keras.layers.ReLU(max_value = 1),
+    keras.layers.Flatten(),
+   
+    keras.layers.Dense(200),
+    keras.layers.ReLU(max_value = 1,  name='after_flatten'), 
+    keras.layers.Dense(num_labels, activation=tf.nn.softmax, name='out')
+    ])
+
+def loihi_conv_model():
+    
+    ann_model = conv_model(10)
+    
+    ann_model.load_weights("loihi_cnn.h5")
+    
+    intermediate_layer_model = Model(inputs=ann_model.input,
+                                 outputs=ann_model.get_layer('after_flatten').output)
+
+    return intermediate_layer_model
+
+
+def generate_inputs(inputs,vth,T):
+    res = np.zeros((T,len(inputs),inputs.shape[1]))
+    for j in range(len(inputs)):
+        input_ = inputs[j]
+        intervals = (vth/input_).astype(int)+1
+        for t in range(T):
+            for i in range(len(input_)):
+                if (t+1)%intervals[i] ==0:
+                    res[t,j,i] = 1
+    return res
+
+def generate_spikes(num_samples,inputs,vth, T):
+    res = generate_inputs(inputs,vth, T)
+    tmp_res = res
+    spikes = np.zeros([res.shape[2], res.shape[0]*res.shape[1]])
+    print(spikes.shape)
+    # for kk in range(len(spikes)):
+    #     spikes[kk] = res [:,0,kk]
+    for kk in range(len(spikes)):
+        for i in range(num_samples):
+                spikes[kk,i*T:(i+1)*T] = res[:,i,kk]
+    
+    return spikes
 
 
 class VecRecvProcess(AbstractProcess):
@@ -270,25 +356,7 @@ def Init_Threshold(inputs, outputs, h, threshold_h, threshold_o, init=0, dfa=0, 
 
     return threshold_h, threshold_o, ethreshold_h, ethreshold_o
     
-def to_integer(weights, bitwidth, normalize=True):
-    """Convert weights and biases to integers.
 
-    :param np.ndarray weights: 2D or 4D weight tensor.
-    :param np.ndarray biases: 1D bias vector.
-    :param int bitwidth: Number of bits for integer conversion.
-    :param bool normalize: Whether to normalize weights and biases by the
-        common maximum before quantizing.
-
-    :return: The quantized weights and biases.
-    :rtype: tuple[np.ndarray, np.ndarray]
-    """
-
-    max_val = np.max(np.abs(weights)) \
-        if normalize else 1
-    a_min = -2**bitwidth
-    a_max = - a_min - 1
-    weights = np.clip(weights / max_val * a_max, a_min, a_max).astype(int)
-    return weights
 
 
 
@@ -302,16 +370,17 @@ def hook(num_samples):
 
 
 class multipattern_learning:
-    def __init__(self,dim,conv, time_steps ):
-        self.w_h= []
-        self.w_o =[]
+    def __init__(self,dim,conv,w_h = [],w_o=[], time_steps =32 ):
+        self.w_h= w_h
+        self.w_o =w_o
         self.w_fixed =[]
         self.w_h_fixed = []
         self.dim = dim
         self.time_steps = time_steps
         self.conv = conv
-        self.w_a= []
+        self.w_a= [[None]]
         self.w_b = []
+        self.fac =255
         
  #online/offline accepting data
     def streaming(self, dataset,online=False):
@@ -322,21 +391,29 @@ class multipattern_learning:
         indices = hook(len(data))
         data = data[indices]
         label = labels[indices]
-        bs = int(len(data)/ITERS)
+        bs = int(len(data)/ITERS)      
+        #
         if self.conv:
-            model = ann_model()
-            new_data = np.zeros((len(data),self.dim[0]))
-            for kk in range(int(len(data/bs))):
-                new_data[kk*bs:(kk+1)*bs] = model(data[bs*kk:(kk+1)*bs])
-            data = new_data        
-         
+            net = loihi_conv_model()
+            new_set = net(data)
+            data = new_set
+            
         data_index = (np.linspace(0, len(data) - 1, len(data))).astype(int)
         data = np.expand_dims(np.reshape(data, [len(data),self.dim[0]]), axis=0)
        
-        if len(self.w_a) ==0:
+        if len(self.w_h) ==0:
             self.w_a, self.w_b = init_weights(inputs= self.dim[0], outputs=self.dim[-1],h=[self.dim[1]])
+            self.w_a[0],h_r = to_integer(self.w_a[0],8)
+            self.w_b, o_r = to_integer(self.w_b,8)
+            self.w_o_fixed = self.w_b
+            self.threshold_h[0] = (self.fac* h_r*self.threshold_h[0]).astype(int)
+            self.threshold_o =  (self.fac*o_r*self.threshold_o).astype(int)
+        else:
+            self.w_a[0] = np.transpose(self.w_h)
+            self.w_b = np.transpose(self.w_o)
+            self.w_o_fixed = self.w_b
 
-        labels = np.argmax(labels,axis=-1)
+        # labels = np.argmax(labels,axis=-1)
         
         for i in range(ITERS):   
             spikes = np.zeros([self.time_steps,bs, dim[0]]).astype(float)     
@@ -413,7 +490,7 @@ class multipattern_learning:
 
 
 
-                delta_h[n_hidden - 1][t, :, :] = oe.contract("Bj,ij->Bi", sdelta[t-1, :, :], self.w_b) + delta_h[n_hidden - 1][t - 1, :, :]
+                delta_h[n_hidden - 1][t, :, :] = oe.contract("Bj,ij->Bi", sdelta[t-1, :, :], self.w_o_fixed) + delta_h[n_hidden - 1][t - 1, :, :]
 
 
                 sdelta_h[n_hidden - 1][t, delta_h[n_hidden - 1][t, :, :] >= self.ethreshold_h[n_hidden - 1]] = 1.0
@@ -427,10 +504,11 @@ class multipattern_learning:
             tmp0 = (np.sum(hidden_spikes[n_hidden - 1][: self.time_steps, :, :],
                                     axis=0, keepdims=True))
             tmp1 = (1*np.sum((sdelta), axis=0, keepdims=True))
-            tpp = np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps)
-            newlr = 0.003
+            tpp = self.fac*np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps)
+            
+            newlr = 0.005
 
-            self.w_b +=  (np.multiply(tpp, newlr))
+            self.w_b +=  (np.multiply(tpp, newlr)).astype(int)
 
             tmp0 = (np.sum(input_spikes[ :self.time_steps, :, :], axis=0,
                                     keepdims=True))
@@ -439,13 +517,20 @@ class multipattern_learning:
 
 
 
-            tpp = np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps)
+            tpp = self.fac*np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps)
  
-            self.w_a[0] += np.multiply(tpp, newlr)
+            self.w_a[0] += (np.multiply(tpp, newlr)).astype(int)
+
+        self.w_a[0],h_r = to_integer(self.w_a[0],8)
+        self.w_b, o_r = to_integer(self.w_b,8)
             
-        self.w_h = np.transpose(to_integer(self.w_a[0],8))
-        self.w_o = np.transpose(to_integer(self.w_b,8))
+        self.threshold_h[0] = (self.fac* h_r*self.threshold_h[0]).astype(int)
+        self.threshold_o =  (self.fac*o_r*self.threshold_o).astype(int)
+        
+        self.w_h = np.transpose(self.w_a[0])
+        self.w_o = np.transpose(self.w_b)
   
+
 
 
 
