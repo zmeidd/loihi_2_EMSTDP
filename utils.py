@@ -1,4 +1,3 @@
-
 import numpy as np
 import opt_einsum as oe
 # process definition
@@ -41,7 +40,7 @@ from keras.models import Model
 from keras.layers import Dropout, Flatten, Conv2D, Input, MaxPooling2D, Dense, AveragePooling2D
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-
+from skimage.transform import resize
 
 
 
@@ -68,26 +67,26 @@ def to_integer(weights, bitwidth, normalize=True):
     return weights, a_max/max_val
 
 
-'''
-recieve post spikes 
-if the IO works well on board
-'''
-def simple_softmax_conv_model(num_labels,  input_shape=(32,32,1), l2_reg=0.0):
-    return keras.models.Sequential([
-    keras.layers.Conv2D(16, (5,5), (2, 2),
-                           padding='valid', use_bias=False, input_shape=input_shape),
-    keras.layers.ReLU(max_value = 1),
-    keras.layers.Conv2D(8, (5,5), (2, 2), 
-                           padding='valid',use_bias=False),
-    keras.layers.ReLU(max_value = 1),
+# '''
+# recieve post spikes 
+# if the IO works well on board
+# '''
+# def simple_softmax_conv_model(num_labels,  input_shape=(32,32,1), l2_reg=0.0):
+#     return keras.models.Sequential([
+#     keras.layers.Conv2D(16, (5,5), (2, 2),
+#                            padding='valid', use_bias=False, input_shape=input_shape),
+#     keras.layers.ReLU(max_value = 1),
+#     keras.layers.Conv2D(8, (5,5), (2, 2), 
+#                            padding='valid',use_bias=False),
+#     keras.layers.ReLU(max_value = 1),
  
-    keras.layers.Flatten(),
-    keras.layers.ReLU(max_value = 1,  name='after_flatten'),
-    keras.layers.Dense(200),
-    keras.layers.ReLU(max_value = 1),
-    keras.layers.Dense(100),
-    keras.layers.ReLU(max_value = 1), 
-    keras.layers.Dense(num_labels, activation=tf.nn.softmax, name='out')])
+#     keras.layers.Flatten(),
+#     keras.layers.ReLU(max_value = 1,  name='after_flatten'),
+#     keras.layers.Dense(200),
+#     keras.layers.ReLU(max_value = 1),
+#     keras.layers.Dense(100),
+#     keras.layers.ReLU(max_value = 1), 
+#     keras.layers.Dense(num_labels, activation=tf.nn.softmax, name='out')])
 
 def loihi_model():
     
@@ -261,6 +260,16 @@ def init_weights( inputs, outputs, h, init=0):
     return w_h, w_o
 
 
+def transform(data):
+    data = resize(data, (data.shape[0],32,32,1))
+    net = loihi_conv_model()
+    new_set = net(data).numpy()
+    
+    return new_set
+    
+    
+
+
 def Init_Threshold(inputs, outputs, h, threshold_h, threshold_o, init=0, dfa=0, norm=0.0):
     hiddenThr1 = threshold_h
     outputThr1 = threshold_o
@@ -390,12 +399,13 @@ class multipattern_learning:
         labels = dataset[1]
         indices = hook(len(data))
         data = data[indices]
-        label = labels[indices]
+        labels = labels[indices]
         bs = int(len(data)/ITERS)      
         #
-        if self.conv:
+        if self.conv or len(data.shape) >2:
+            data = resize(data,(data.shape[0],32,32,1))
             net = loihi_conv_model()
-            new_set = net(data)
+            new_set = net(data).numpy()
             data = new_set
             
         data_index = (np.linspace(0, len(data) - 1, len(data))).astype(int)
@@ -412,8 +422,10 @@ class multipattern_learning:
             self.w_a[0] = np.transpose(self.w_h)
             self.w_b = np.transpose(self.w_o)
             self.w_o_fixed = self.w_b
-
-        # labels = np.argmax(labels,axis=-1)
+        
+        if len(np.array(labels).shape)>1:
+            print("true")
+            labels = np.argmax(labels,axis=-1)
         
         for i in range(ITERS):   
             spikes = np.zeros([self.time_steps,bs, dim[0]]).astype(float)     
@@ -504,7 +516,7 @@ class multipattern_learning:
             tmp0 = (np.sum(hidden_spikes[n_hidden - 1][: self.time_steps, :, :],
                                     axis=0, keepdims=True))
             tmp1 = (1*np.sum((sdelta), axis=0, keepdims=True))
-            tpp = self.fac*np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps)
+            tpp = self.fac*np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps//2)
             
             newlr = 0.005
 
@@ -517,7 +529,7 @@ class multipattern_learning:
 
 
 
-            tpp = self.fac*np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps)
+            tpp = self.fac*np.mean(oe.contract("iBj,iBk->Bjk", tmp0, tmp1), axis=0) / float(self.time_steps//2)
  
             self.w_a[0] += (np.multiply(tpp, newlr)).astype(int)
 
@@ -530,7 +542,4 @@ class multipattern_learning:
         self.w_h = np.transpose(self.w_a[0])
         self.w_o = np.transpose(self.w_b)
   
-
-
-
 
