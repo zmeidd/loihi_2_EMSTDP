@@ -1,108 +1,134 @@
 import numpy as np
-from tensorflow import keras
-from tensorflow.keras import layers
-import tensorflow as tf
-from tensorflow.python.keras import activations
-from tensorflow.python.keras.layers.advanced_activations import ReLU
-from tensorflow.python.keras.layers.core import Dense
-from keras import backend as K
-from keras.models import Model
-from tensorflow.python.ops.gen_math_ops import mod
-import os
+
+import logging
 import numpy as np
-from lava.proc import io
-from lava.utils.system import Loihi2
-from lava.proc.lif.process import LIF
-from lava.proc.conv.process import Conv
-from lava.proc.dense.process import Dense   
+from lava.magma.core.model.py.model import PyLoihiProcessModel
+from lava.magma.core.model.py.ports import PyInPort, PyOutPort
+from lava.magma.core.model.py.type import LavaPyType
+from lava.magma.core.process.ports.ports import InPort, OutPort
+from lava.magma.core.process.process import AbstractProcess
+from lava.magma.core.process.variable import Var
 from lava.magma.core.run_conditions import RunSteps
-from lava.magma.core.run_configs import Loihi2HwCfg, Loihi2SimCfg
-from keras.models import Model
-from keras.layers import Dropout, Flatten, Conv2D, Input, MaxPooling2D, Dense, AveragePooling2D
-num_classes = 10
-input_shape = (32,32,1)
-def to_integer(weights, bitwidth, normalize=True):
-    """Convert weights and biases to integers.
+from lava.magma.core.run_configs import Loihi2SimCfg, Loihi2HwCfg
+from lava.magma.core.sync.protocols.loihi_protocol import LoihiProtocol
+# import pyximport; pyximport.install()
+import logging, os
+from lava.proc.lif.process import LIF,LIFReset
+from lava.proc.dense.process import Dense
+logging.disable(logging.WARNING)
+from lava.magma.core.model.py.model import PyLoihiProcessModel
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+import numpy as np
+import pickle
+import time
+import random
+import numpy as np
+from lava.magma.core.process.variable import Var
+import numpy as np
+# tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+from typing import Tuple
+from lava.magma.core.process.variable import Var
+from lava.magma.core.process.ports.ports import InPort, OutPort
+from lava.magma.core.sync.protocols.loihi_protocol import LoihiProtocol
+from lava.magma.core.resources import CPU, Loihi2NeuroCore
+from lava.proc import embedded_io as eio
+from lava.proc.ImgToSpk import InpImgToSpk
+from utils import loihi_model
+from utils import loihi_model
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+import os
+import sys
+import inspect
+def transfer_dataset(d_set,time_steps = 32):
+    num_samples = int(len(d_set)/time_steps)
+    res = np.zeros([num_samples,d_set.shape[1]])
+    for i in range(num_samples):
+        res[i] = np.sum(d_set[i*time_steps:(i+1)*time_steps,:],axis = 0)
 
-    :param np.ndarray weights: 2D or 4D weight tensor.
-    :param np.ndarray biases: 1D bias vector.
-    :param int bitwidth: Number of bits for integer conversion.
-    :param bool normalize: Whether to normalize weights and biases by the
-        common maximum before quantizing.
-
-    :return: The quantized weights and biases.
-    :rtype: tuple[np.ndarray, np.ndarray]
-    """
-
-    max_val = np.max(np.abs(weights)) \
-        if normalize else 1
-    a_min = -2**bitwidth
-    a_max = - a_min - 1
-    weights = np.clip(weights / max_val * a_max, a_min, a_max).astype(int)
-    return weights
+    return res
+        
 
 
-input_layer = Input((32,32,1))
 
-layer = Conv2D(filters=16, 
-                kernel_size=(5, 5), 
-                strides=(2, 2), 
-                padding='valid',
-                use_bias=False,
-                input_shape=input_shape,
-                activation='relu')(input_layer)
+x = np.load("imgs.npy")[:2]
+# net = loihi_model()
+# res = net(x)
 
-layer = Conv2D(filters=8, 
-                kernel_size=(5, 5), 
-                strides=(2, 2), 
-                padding='valid',
-                use_bias=False,
-                input_shape=input_shape,
-                activation='relu')(layer)
+data = x
+start = time.time()
+inp = InpImgToSpk(curr_img_id =0 , data = x)
+for i in range(2):
+    inp.run(condition=RunSteps(num_steps=32), run_cfg = Loihi2SimCfg(select_tag = "fixed_pt"))
+    
+# train_set = inp.img_set()
+# res = transfer_dataset(train_set)
+inp.stop()
+print("elapsed time", time.time() -start)
 
-layer = Flatten()(layer)
 
-layer = Dense(100,
-            activation='relu',
-            use_bias=False)(layer)
-layer = Dense(num_classes,
-            activation='softmax',
-            use_bias=False)(layer)
 
-ann_model = Model(input_layer, layer)
-ann_model.load_weights("ann_wgt.h5")
-parameters = ann_model.get_weights()
-weights = parameters
 
-conv_wgt_1 = to_integer(weights[0],8)#size 5,5,1,16 #out 14 ,14 ,16
-conv_wgt_2 = to_integer(weights[1],8) #size 5,5,16,8 #out 5, 5, 8
-conv_wgt_1 = np.reshape(conv_wgt_1,(conv_wgt_1.shape[-1],conv_wgt_1.shape[0],conv_wgt_1.shape[1],conv_wgt_1.shape[2]))
-conv_wgt_2 = np.reshape(conv_wgt_2,(conv_wgt_2.shape[-1],conv_wgt_2.shape[0],conv_wgt_2.shape[1],conv_wgt_2.shape[2]))
-# weight_dims = [
-#         out_channels,
-#         kernel_size[0], kernel_size[1],
-#         in_channels // groups
-# ]
 
-input_shape_1 = (32,32,1)
-input_shape_2 = (14,14,16)
-conv1 = Conv(
-        weight= conv_wgt_1,
-        input_shape= input_shape_1,
-        padding=(0,0),
-        stride=(2,2)
-      )
-conv2 = Conv(
-        weight= conv_wgt_2,
-        input_shape= input_shape_2,
-        padding=(0,0),
-        stride=(2,2)
-      )
-lif_in = LIF(shape=input_shape_1, vth=50, du=0, dv=0,
-          bias_mant=25)
-lif_in.s_out.connect(conv1.in_ports.s_in)
-conv1.out_ports.a_out.connect(conv2.in_ports.s_in)
 
-lif_in.run(condition=RunSteps(num_steps=13000), run_cfg=Loihi2SimCfg(select_tag= "fixed_pt"))
-lif_in.stop()
 
+
+# def test_conv_loihi(w_h,w_o,T=32,num_samples = 100):
+#     b_features = 100
+#     c_features = 10
+#     vth_hid = 300
+#     vth_out = 100
+
+#     labels =np.load("loihi_label.npy")[:num_samples]
+#     a = LIFReset(shape=(b_features,),vth = vth_hid,bias_mant= 0,du=4095,dv=0,reset_interval= T)
+#     b = LIFReset(shape=(c_features,),vth = vth_out,bias_mant= 0,du=4095,dv=0,reset_interval= T)
+#     c = LIFReset(shape=(c_features,),vth = 1000,bias_mant= 0,du=4095,dv=0,reset_interval = T)
+#     con1 = Dense(weights= w_h)
+#     con = Dense(weights= w_o)
+#     con2 = Dense(weights = np.eye(c_features))
+
+#     img_to_spk = InpImgToSpk(img_shape=(1,32,32,1), n_tsteps= T, curr_img_id=0)
+#     # inp_adp = InputAdapter(shape= (200,))
+#     img_to_spk.spk_out.connect(con1.s_in)
+#     con1.a_out.connect(a.a_in) 
+#     a.s_out.connect(con.s_in)
+#     con.a_out.connect(b.a_in)
+#     b.s_out.connect(con2.s_in)
+#     con2.a_out.connect(c.a_in)
+
+#     start = time.time()
+#     final_res = np.zeros((num_samples, c_features))
+#     for i in range(num_samples):
+#         img_to_spk.run(
+#               condition=RunSteps(num_steps=32), run_cfg = Loihi2SimCfg(
+#                   select_tag = "fixed_pt",# To select fixed point implementation.
+#                 exception_proc_model_map={
+#                     #InpImgToSpk: PyInpImgToSpkModel,
+#                     # OutSpkToCls: PyOutSpkToClsModel,
+#                     # InputAdapter: NxInputAdapter,
+#                     # OutputAdapter: NxOutputAdapter
+#                     })
+#         )
+#         result = c.v.get()
+#         print(result)
+#         final_res[i] = result
+#     print("final_res", np.argmax(final_res,axis = -1)[:10])
+#     print(labels[:10])
+#     print(labels.shape)
+#     print("elapsed time",time.time()-start)  
+
+# # label = np.load("loihi_label.npy")[:3000]
+# # labels = np.zeros((3000,10))
+# # for i in range(3000):
+# #     labels[i,np.argmax(label[i])] =1
+# # dataset = [np.load("loihi_data.npy")[:3000],labels]
+# # net = loihi2_net([200,100,10],time_steps = 32, conv =True, fast_io= False)
+# # w_h,w_o = net.streaming(dataset)
+# # print("done")
+# # np.save("w_h.npy",w_h)
+# # np.save("w_o.npy",w_o)
+
+
+# w_h = np.load("w_h.npy")
+# w_o = np.load("w_o.npy")
+# test_conv_loihi(w_h,w_o)
+# # print("elapsed time:", time.time()-start)
