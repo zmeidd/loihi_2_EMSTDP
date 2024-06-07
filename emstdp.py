@@ -609,7 +609,7 @@ class loihi2_net(multipattern_learning):
         data = dataset[0]
         label = dataset[1]
         vth = 1
-        vth_hid = 520
+        vth_hid = 550
         vth_out = 210
         data = pre_process_test(data)
         T = self.time_steps
@@ -688,7 +688,7 @@ class loihi2_net(multipattern_learning):
             a = LIF(shape=(b_features,),vth = vth_hid,bias_mant= 0,du=4095,dv=0)
             b = LIF(shape=(c_features,),vth = vth_out,bias_mant= 0,du=4095,dv=0)
             c = LIF(shape=(c_features,),vth = 7000,bias_mant= 0,du=4095,dv=0)
-            assist = LIF(shape=(c_features,),vth = 4,bias_mant= 0,du=4095,dv=0)
+            assist = LIF(shape=(c_features,),vth = 1,bias_mant= 0,du=4095,dv=0)
 
             con1 = Dense(weights= np.transpose(w_h))
             con = Dense(weights= np.transpose(w_o) )
@@ -723,7 +723,7 @@ class loihi2_net(multipattern_learning):
                 final_res[i] = result
                 c.vars.v.set(np.zeros([c_features]))
                 assist.v.set(np.zeros([c_features]))
-                pattern_pre.pause()
+                # pattern_pre.pause()
 
             pattern_pre.stop()
             # print(np.argmax(final_res,axis =-1)[:20])
