@@ -609,8 +609,8 @@ class loihi2_net(multipattern_learning):
         data = dataset[0]
         label = dataset[1]
         vth = 1
-        vth_hid = 550
-        vth_out = 210
+        vth_hid = 780
+        vth_out = 220
         data = pre_process_test(data)
         T = self.time_steps
         num_samples = len(data)
