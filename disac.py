@@ -14,7 +14,7 @@ w_h = np.load("./weights/w_h.npy")
 w_o = np.load("./weights/w_o.npy")
 net = loihi2_net(dim = dim,w_h = w_h, w_o = w_o, time_steps = 32)
 
-print(labels)
+print(w_o)
 data = preprocess_raw_imgs(files, file_path)
-print(data.shape)
-net.test_loihi([data[:10],labels[:10]],w_h = w_h, w_o = w_o)
+net.test_loihi([data[:100],labels[:100]],w_h = w_h, w_o = w_o)
+
