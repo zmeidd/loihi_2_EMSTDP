@@ -9,13 +9,19 @@ for i in range(len(files)):
 from emstdp import loihi2_net
 import numpy as np
 from utils import preprocess_raw_imgs
-dim =[200,100,9]
-w_h = np.load("./weights/w_h.npy")
+dim =[100,50,9]
+w_h = np.load("./weights/w_h.npy")[:,:,0]
 w_o = np.load("./weights/w_o.npy")
-net = loihi2_net(dim = dim,w_h = w_h, w_o = w_o, time_steps = 40)
-
 print(w_o)
+net = loihi2_net(dim = dim,w_h = [], w_o = [], time_steps = 64)
+
 data = np.load("demo_data.npy")
 labels = np.load("demo_label.npy")
-net.test_loihi([data[:30],labels[:30]],w_h = w_h, w_o = w_o)
+print(labels)
+#net.test_loihi([data[:1200],labels[:1200]],w_h = w_h, w_o = w_o)
+for i in range(3):
+    w_h, w_o = net.train_loihi_network([data[:300],labels[:300]],w_h = w_h, w_o = w_o)
+    del net
+    net = loihi2_net(dim = dim,w_h = w_h, w_o = w_o, time_steps = 64)
+    net.test_loihi([data[:100],labels[:100]],w_h = w_h, w_o = w_o)
 
