@@ -18,8 +18,6 @@ mem_set = [mem_data[idx],mem_label[idx]]
 
 
 #============================================================================
-
-
 '''
 Pretrained weights
 '''
@@ -60,13 +58,14 @@ Incremental  Testing: on ALL dataset
 
     ***********
 '''
-print("Start Testing!")
+print("\n****************Start All Classes Testing!****************\n")
 data = np.load("incre_data.npy")
 labels = np.load("incre_label.npy")
 dataset = [data[-100:],labels[-100:]]
 net = loihi2_net(dim =DIM,time_steps = T,w_h = w_h,w_o=w_o)
-net.test_loihi(dataset)
-
+acc = net.test_loihi(dataset)
+print(f"The Testing Result for All classes is: {acc}")
+print("\n**************** Done ****************\n")
 
 
 
