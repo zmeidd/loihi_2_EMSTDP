@@ -39,7 +39,40 @@ def merge_set(mem_set, cur_set):
     merged = [merged[0][arr], merged[1][arr]]
     
     return merged
-    
+
+
+
+class emstdp_results:
+    def __init__(self, testing_task, testing_sample, training_sample, accuracy):
+        self.training_task = testing_task
+        self.testing_sample = testing_sample
+        self.accuracy = accuracy
+        self.training_sample = training_sample
+    def __str__(self):
+        return f"Current training task:{self.training_task}\nNumber of Training Samples:{self.training_sample:.1f}\nNumber of Testing Samples:{self.testing_sample}\nAccuracy: {self.accuracy:.2f}"
+
+def print__results(results):
+    print("\nIncremental learning Results:")
+    for result in results:
+        print("-" * 30)
+        print(result)
+    print("-" * 30)
+
+
+def get_key_from_value(dictionary, value):
+    for key, val in dictionary.items():
+        if val == value:
+            return key
+    return None  # 
+
+def get_tank_name(task):
+    name_list = []
+    class_name = {'2S3':0,  'BMP2':1, 'BRDM2':2, 'BTR70':3, 'MTLB':4, 'Pickup':5, 'Sport':6,  'T72':7, 'ZSU23-4':8}
+    for value in task:
+        name_list.append(get_key_from_value(dictionary= class_name, value=value))
+    return name_list
+
+
 
 def memory_data(data,labels,sub_label, k =50):
     new_data = np.zeros((int(len(sub_label)*k),32,32,1))
@@ -125,20 +158,22 @@ def train_incremental(w_h, w_o,mem_set= [],task_1 =[], task_2 = [],num_task = NU
         current_set = tasks[i]
         train_set = merge_set(mem_set, current_set) 
         for e in range(epochs):
-            print(f"Training task {i} of epoch {e}")
-            '''
-            Training current task
-            '''
+            print("-" * 30)
+            print(f"Training task {i} of epoch {e}\n")
+            print("-" * 30)
             net = loihi2_net(dim =DIM,time_steps = TIME_STEPS,w_h = w_h,w_o=w_o)
             w_h, w_o=net.train_loihi_network([train_set[0][:150], train_set[1][:150]])
             del net
         '''
         Testing Past Dataset
         '''
-        print(f"*******Testing Past Task:{i}***********")
+        print(f"=================Testing Past Task:{i}=================")
         net = loihi2_net(dim =DIM,time_steps = TIME_STEPS,w_h = w_h,w_o=w_o)
-        net.test_loihi([mem_set[0][:50],mem_set[1][:50]])
-        print(f"*******End Testing Past Task:{i}***********")
+        acc =net.test_loihi([mem_set[0][:100],mem_set[1][:100]])
+        tank_name = get_tank_name(tasks_label[i])
+        result = emstdp_results(testing_task= tank_name, training_sample=len(train_set[0]), testing_sample= 100, accuracy=acc)
+        print(result)
+        print(f"=================End Testing Past Task:{i}=================")
         print()
         new_mem_set = memory_data(current_set[0],current_set[1],tasks_label[i],k=50)
         mem_set = merge_set(mem_set,new_mem_set)
@@ -146,4 +181,5 @@ def train_incremental(w_h, w_o,mem_set= [],task_1 =[], task_2 = [],num_task = NU
             
     return w_h, w_o
            
+
 
