@@ -384,7 +384,7 @@ can be implemented on both software implementation and hardware implementation
 '''
 def detect_ood(data_set,  w_h =w_h, w_o = w_o, shape = 100):
 
-    T = 32
+    T = 64
     net = model()
     data_set = net(data_set).numpy()
     # lif_test = LIF(shape=(100,), vth = 10, du =4095, dv=0)
